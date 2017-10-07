@@ -1,0 +1,8 @@
+1. Grep all stats from the 3 statements.
+2. Year-to-year comparison.
+3. Month-to-month comparison.
+4. Month-to-last-year-month comparison.
+5. Company-to-company comparison.
+6. Check stock price at this date.
+7. Pattern detection.
+8. Prediction.
