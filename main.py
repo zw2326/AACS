@@ -1,14 +1,18 @@
 from openpyxl import load_workbook
 from time import strftime
 import code
-import os.path
+import glob
+import os
 import re
 import sys
 
-mylog = os.path.sep.join(['workspace', 'mylog.log'])
+workspacedir = 'workspace'
+cachedir = os.path.join(workspacedir, 'cache')
+mylog = os.path.join(workspacedir, 'mylog.log')
 
 inputtype = 'xlsx'
-inputfile = os.path.sep.join(['workspace', 'cache', 'orcl-2017.xlsx'])
+inputfile = map(lambda x: os.path.join(cachedir, x), [f for f in os.listdir(cachedir) if re.match('^goog-.*-10Q-.*\.xlsx', f)])
+
 debug = False
 
 # Factory to return input adapter.
@@ -87,29 +91,70 @@ def Process(wb):
         rowkey = row[0].value.lower()
 
         ### TODO: remove $, ' '; convert e.g. '9,821' to float
+        ### TODO: save original row key
         # Assets.
-        if re.match('^.*total current asset.*$', rowkey):
+        if re.match('^.*total current assets.*$', rowkey):
             cbs.kvp['total current assets'] = row[1].value
-        elif re.match('^.*total non-current asset.*$', rowkey):
+        elif re.match('^.*total non-current assets.*$', rowkey):
             cbs.kvp['total non-current assets'] = row[1].value
-        elif re.match('^.*total asset.*$', rowkey):
+        elif re.match('^.*total assets.*$', rowkey):
             cbs.kvp['total assets'] = row[1].value
         # Liabilities.
-        elif re.match('^$', rowkey):
-            pass
-        elif re.match('^$', rowkey):
-            pass
+        elif re.match('^.*total current liabilities.*$', rowkey):
+            cbs.kvp['total current liabilities'] = row[1].value
+        elif re.match('^.*total non-current liabilities.*$', rowkey):
+            cbs.kvp['total non-current liabilities'] = row[1].value
+        elif re.match('^.*total liabilities.*$', rowkey) and not re.match('^.*equity.*$', rowkey):
+            cbs.kvp['total liabilities'] = row[1].value
         # Equity.
-        elif re.match('^.*total equity.*$', rowkey) is not None:
+        elif re.match('^.*total.*equity.*$', rowkey) and not re.match('^.*liabilities.*$', rowkey):
             cbs.kvp['total equity'] = row[1].value
         # Liabilities and equity.
-        elif re.match('^.*total liabilities and equity.*$', rowkey):
+        elif re.match('^.*total liabilities and.*equity.*$', rowkey):
             cbs.kvp['total liabilities and equity'] = row[1].value
-    print cbs.kvp
-    code.interact(local=locals())
+    for key in cbs.kvp.keys():
+        print key, cbs.kvp[key]
+    # code.interact(local=locals())
+    return cbs
 
 def Render(output):
-    pass
+    fid = open(os.path.join(workspacedir, 'index.html'), 'w')
+    fid.write('''
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/0.2.0/Chart.min.js" type="text/javascript"></script>
+</head>
+<body>
+<canvas id="myChart" width="400" height="400"></canvas>
+<script>
+var data = {
+  labels: ["2016-Q1", "2016-Q2", "2016-Q3", "2017-Q1", "2017-Q2"],
+  datasets: [
+      {
+          label: "Sugar intake",
+          fillColor: "rgba(151,187,205,0.2)",
+          strokeColor: "rgba(151,187,205,1)",
+          pointColor: "rgba(151,187,205,1)",
+          pointStrokeColor: "#fff",
+          pointHighlightFill: "#fff",
+          pointHighlightStroke: "rgba(151,187,205,1)",
+          data: [
+''' + ','.join([str(x.kvp['total liabilities and equity']) for x in output]) +
+'''
+]
+      }
+  ]
+};
+
+new Chart(document.getElementById("myChart").getContext("2d")).Line(data);
+</script>
+</body>
+</html>
+    ''')
+    fid.close()
 
 def Log(msg):
     fid = open(mylog, 'a')
@@ -128,6 +173,11 @@ def Error(msg):
 if __name__ == '__main__':
     PrepareDirs()
     ParseArgs()
-    wb = InputFactory.Get(inputtype).Load(inputfile)
-    output = Process(wb)
+    output = []
+    for file in inputfile:
+        print file
+        wb = InputFactory.Get(inputtype).Load(file)
+        output.append(Process(wb))
+        print
+
     Render(output)
