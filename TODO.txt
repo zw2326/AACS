@@ -6,3 +6,5 @@
 6. Check stock price at this date.
 7. Pattern detection.
 8. Prediction.
+
+python main.py --filter ">2017Q1" --no-sync GOOG ORCL AMZN

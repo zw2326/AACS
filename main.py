@@ -6,86 +6,142 @@ import os
 import re
 import sys
 
-workspacedir = 'workspace'
-cachedir = os.path.join(workspacedir, 'cache')
-mylog = os.path.join(workspacedir, 'mylog.log')
+# code.interact(local=locals())
 
-inputtype = 'xlsx'
-inputfile = map(lambda x: os.path.join(cachedir, x), [f for f in os.listdir(cachedir) if re.match('^goog-.*-10Q-.*\.xlsx', f)])
+env = {
+    'workspacedir': 'workspace',
+    'cachedir': os.path.join('workspace', 'cache'),
+    'resultdir': os.path.join('workspace', 'result'),
+    'mylog': os.path.join('workspace', 'mylog.log'),
 
-debug = False
+    'sync': True,
+    'filter': None,
+    'debug': False,
 
-# Factory to return input adapter.
-class InputFactory(object):
-    @classmethod
-    def Get(cls, type):
-        if type == 'xlsx':
-            return XlsxInput()
-        elif type == 'url':
-            return UrlInput()
-        else:
-            Error('Unknown Input type: {0}'.format(type))
+    'symbols': []
+}
 
 
-class XlsxInput(object):
-    def __init__(self):
-        pass
+class SymbolMeta(object):
+    def __init__(self, symbol):
+        self.symbol = symbol
+        self.inputfiles = []
+        self.i2s = {} # map inputfile to a list of 3 sheets
+        self.i2d = {} # map inputfile to date
 
-    def Load(self, filename):
-        if not os.path.isfile(filename):
-            Error('Input file does not exist: {0}'.format(filename))
-        wb = load_workbook(filename = filename)
-        return wb
+    def Insert(self, inputfile, date, sheets):
+        self.inputfiles.append(inputfile)
+        self.i2s[inputfile] = sheets
+        self.i2d[inputfile] = date
 
 
 class Sheet(object):
     def __init__(self, name, sheet):
         self.name = name
         self.sheet = sheet
-        self.kvp = {}
+        self.k2v = {} # map item name to value
+        self.k2k = {} # map internal item name to original name in file
 
 
 def PrepareDirs():
-    if not os.path.exists('workspace'):
-        os.makedirs('workspace')
-    if not os.path.exists(os.path.sep.join(['workspace', 'cache'])):
-        os.makedirs(os.path.sep.join(['workspace', 'cache']))
+    if not os.path.exists(env['cachedir']):
+        os.makedirs(env['cachedir'])
+    if not os.path.exists(env['resultdir']):
+        os.makedirs(env['resultdir'])
 
 def ParseArgs():
-    global debug
+    global env
     ptr = 1
     while ptr < len(sys.argv):
         if sys.argv[ptr] == '--debug':
-            debug = True
+            env['debug'] = True
+        elif sys.argv[ptr] == '--no-sync':
+            env['sync'] = False
+        elif sys.argv[ptr] == '--filter':
+            if ptr + 1 >= len(sys.argv):
+                print '--filter must specify a filter.'
+                exit(1)
+            ptr += 1
+            env['filter'] = sys.argv[ptr]
+        elif sys.argv[ptr] == '--help':
+            print '''
+Usage: python main.py [OPTIONS] SYMBOL [SYMBOL2] ...
+Script to scan and visualize financial statements.
+
+  --debug                Print out debug messages.
+  --filter FILTER        Specify a time filter. Syntax are:
+                         ">YYYYQ[1-3]", ">YYYYK"
+  --no-sync              Use cached statements only.
+            '''
+            exit(0)
         else:
-            print 'Invalid argument: {0}'.format(sys.argv[ptr])
-            exit(1)
+            while ptr < len(sys.argv):
+                env['symbols'].append(sys.argv[ptr].upper())
+                ptr += 1
         ptr += 1
 
-def Process(wb):
-    # Locate sheets for the 3 statements.
+# Download all statements available for a symbol.
+def Sync(symbol):
+    pass
 
-    # Sheet name is limited to 31 characters. Use
-    # the A1 element of each sheet as its full name.
-    fullname2sheet = {}
-    for name in wb.get_sheet_names():
-        sheet = wb[name]
-        fullname = sheet['A1'].value.lower()
-        fullname2sheet[fullname] = sheet
+# Filter statements for a symbol by time.
+def Filter(symbol):
+    allfiles = [f for f in os.listdir(env['cachedir']) if re.match('^{0}-.*-10[QK].xlsx'.format(symbol), f)]
+    selectedfiles = []
+    rejectedfiles = []
+    for file in sorted(allfiles):
+        if True: ### TODO: do filtering
+            selectedfiles.append(file)
+        else:
+            rejectedfiles.append(file)
+    LogDebug('Selected: {0}'.format(', '.join(selectedfiles)))
+    LogDebug('Rejected: {0}'.format(', '.join(rejectedfiles)))
+    return map(lambda x: os.path.join(env['cachedir'], x), selectedfiles)
 
-    # Locate consolidated balance sheet.
-    cbsnames = []
+# Process all selected statements for a symbol.
+def Process(symbol, inputfiles):
+    result = SymbolMeta(symbol)
+
+    for inputfile in inputfiles:
+        LogDebug('  Processing file {0}'.format(inputfile))
+        wb = load_workbook(filename = inputfile)
+
+        ### TODO: Get sheet "Document and Entity Information" and extract
+        ### Document period end date as SymbolMeta's i2d value.
+        date = '2017-03-04'
+        LogDebug('    Date set to: {0}'.format(date))
+
+        # Sheet name is truncated to 31 characters. Use
+        # the A1 element of each sheet as its full name.
+        fullname2sheet = {}
+        for name in wb.get_sheet_names():
+            sheet = wb[name]
+            fullname = sheet['A1'].value.lower()
+            fullname2sheet[fullname] = sheet
+
+        cbssheet = LocateCBS(wb, fullname2sheet)
+        cbssheet = ProcessCBS(cbssheet)
+
+        # Add (inputfile, date, [3 sheets]) to the meta data object for this symbol.
+        result.Insert(inputfile, date, [cbssheet])
+    return result
+
+# Locate the consolidated balance sheet.
+def LocateCBS(wb, fullname2sheet):
+    candidates = []
     for fullname in fullname2sheet.keys():
         if re.match('^.*consolidated balance sheet.*$', fullname) and not re.match('^.*parenthetical.*$', fullname):
-            cbsnames.append(fullname)
-    if len(cbsnames) == 0:
+            candidates.append(fullname)
+    if len(candidates) == 0:
         Error('We cannot find the consolidated balance sheet.')
-    elif len(cbsnames) > 1:
-        Error('We find more than one consolidated balance sheets: {0}'.format(', '.join(cbsnames)))
-    cbs = Sheet(cbsnames[0], fullname2sheet[cbsnames[0]])
+    elif len(candidates) > 1:
+        Error('We find more than one consolidated balance sheets: {0}'.format(', '.join(candidates)))
+    LogDebug('    Found CBS: {0}'.format(candidates[0]))
+    return Sheet(candidates[0], fullname2sheet[candidates[0]])
 
-    # Parse consolidated balance sheet.
-    for row in cbs.sheet.iter_rows(row_offset=1):
+# Process consolidated balance sheet.
+def ProcessCBS(cbssheet):
+    for row in cbssheet.sheet.iter_rows(row_offset=1):
         if row[0].value == None:
             continue
         rowkey = row[0].value.lower()
@@ -94,31 +150,40 @@ def Process(wb):
         ### TODO: save original row key
         # Assets.
         if re.match('^.*total current assets.*$', rowkey):
-            cbs.kvp['total current assets'] = row[1].value
+            cbssheet.k2v['total current assets'] = row[1].value
+            cbssheet.k2k['total current assets'] = rowkey
         elif re.match('^.*total non-current assets.*$', rowkey):
-            cbs.kvp['total non-current assets'] = row[1].value
+            cbssheet.k2v['total non-current assets'] = row[1].value
+            cbssheet.k2k['total non-current assets'] = rowkey
         elif re.match('^.*total assets.*$', rowkey):
-            cbs.kvp['total assets'] = row[1].value
+            cbssheet.k2v['total assets'] = row[1].value
+            cbssheet.k2k['total assets'] = rowkey
         # Liabilities.
         elif re.match('^.*total current liabilities.*$', rowkey):
-            cbs.kvp['total current liabilities'] = row[1].value
+            cbssheet.k2v['total current liabilities'] = row[1].value
+            cbssheet.k2k['total current liabilities'] = rowkey
         elif re.match('^.*total non-current liabilities.*$', rowkey):
-            cbs.kvp['total non-current liabilities'] = row[1].value
+            cbssheet.k2v['total non-current liabilities'] = row[1].value
+            cbssheet.k2k['total non-current liabilities'] = rowkey
         elif re.match('^.*total liabilities.*$', rowkey) and not re.match('^.*equity.*$', rowkey):
-            cbs.kvp['total liabilities'] = row[1].value
+            cbssheet.k2v['total liabilities'] = row[1].value
+            cbssheet.k2k['total liabilities'] = rowkey
         # Equity.
         elif re.match('^.*total.*equity.*$', rowkey) and not re.match('^.*liabilities.*$', rowkey):
-            cbs.kvp['total equity'] = row[1].value
+            cbssheet.k2v['total equity'] = row[1].value
+            cbssheet.k2k['total equity'] = rowkey
         # Liabilities and equity.
         elif re.match('^.*total liabilities and.*equity.*$', rowkey):
-            cbs.kvp['total liabilities and equity'] = row[1].value
-    for key in cbs.kvp.keys():
-        print key, cbs.kvp[key]
-    # code.interact(local=locals())
-    return cbs
+            cbssheet.k2v['total liabilities and equity'] = row[1].value
+            cbssheet.k2k['total liabilities and equity'] = rowkey
 
-def Render(output):
-    fid = open(os.path.join(workspacedir, 'index.html'), 'w')
+    LogDebug('    Extracted following items from CBS:\n' + '\n'.join(['{0}({1}): {2}'.format(x, cbssheet.k2k[x].encode('utf-8'), cbssheet.k2v[x]) for x in cbssheet.k2v.keys()]))
+    return cbssheet
+
+# Generate HTML.
+def Render(symbolmetas):
+    outputfile = os.path.join(env['resultdir'], 'index.html')
+    fid = open(outputfile, 'w')
     fid.write('''
 <!DOCTYPE html>
 <html>
@@ -128,10 +193,18 @@ def Render(output):
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/0.2.0/Chart.min.js" type="text/javascript"></script>
 </head>
 <body>
-<canvas id="myChart" width="400" height="400"></canvas>
+<canvas id="myChart" width="1600" height="800"></canvas>
 <script>
+    ''')
+
+    for symbolmeta in symbolmetas:
+        cbsdate = [symbolmeta.i2d[i] for i in symbolmeta.inputfiles]
+        cbsdata = [symbolmeta.i2s[i][0] for i in symbolmeta.inputfiles]
+        fid.write('''
 var data = {
-  labels: ["2016-Q1", "2016-Q2", "2016-Q3", "2017-Q1", "2017-Q2"],
+  labels: [
+''' + ', '.join(map(lambda x: '"{0}"'.format(x), cbsdate)) + '''
+],
   datasets: [
       {
           label: "Sugar intake",
@@ -142,8 +215,7 @@ var data = {
           pointHighlightFill: "#fff",
           pointHighlightStroke: "rgba(151,187,205,1)",
           data: [
-''' + ','.join([str(x.kvp['total liabilities and equity']) for x in output]) +
-'''
+''' + ', '.join([str(x.k2v['total liabilities and equity']) for x in cbsdata]) + '''
 ]
       }
   ]
@@ -154,15 +226,17 @@ new Chart(document.getElementById("myChart").getContext("2d")).Line(data);
 </body>
 </html>
     ''')
+    LogDebug('HTML {0} generated'.format(outputfile))
     fid.close()
 
 def Log(msg):
-    fid = open(mylog, 'a')
+    fid = open(env['mylog'], 'a')
     fid.write('[{0}] {1}\n'.format(strftime('%Y-%m-%d %H:%M:%S'), msg))
     fid.close()
+    print msg
 
 def LogDebug(msg):
-    if debug == True:
+    if env['debug'] == True:
         Log('DEBUG: ' + msg)
 
 def Error(msg):
@@ -173,11 +247,13 @@ def Error(msg):
 if __name__ == '__main__':
     PrepareDirs()
     ParseArgs()
-    output = []
-    for file in inputfile:
-        print file
-        wb = InputFactory.Get(inputtype).Load(file)
-        output.append(Process(wb))
-        print
 
-    Render(output)
+    symbolmetas = [] # [SymbolMeta1, ...]
+    for symbol in env['symbols']:
+        LogDebug('Processing symbol {0}'.format(symbol))
+        if env['sync'] == True:
+            Sync(symbol)
+        inputfiles = Filter(symbol)
+        symbolmetas.append(Process(symbol, inputfiles))
+
+    Render(symbolmetas)
