@@ -80,6 +80,13 @@ Script to scan and visualize financial statements.
                 ptr += 1
         ptr += 1
 
+# Prepare statements for a symbol.
+def PrepareInputfiles(symbol):
+    if env['sync'] == True:
+        Sync(symbol)
+    inputfiles = Filter(symbol)
+    return inputfiles
+
 # Download all statements available for a symbol.
 def Sync(symbol):
     pass
@@ -99,7 +106,7 @@ def Filter(symbol):
     return map(lambda x: os.path.join(env['cachedir'], x), selectedfiles)
 
 # Process all selected statements for a symbol.
-def Process(symbol, inputfiles):
+def ProcessInputfiles(symbol, inputfiles):
     result = SymbolMeta(symbol)
 
     for inputfile in inputfiles:
@@ -251,9 +258,8 @@ if __name__ == '__main__':
     symbolmetas = [] # [SymbolMeta1, ...]
     for symbol in env['symbols']:
         LogDebug('Processing symbol {0}'.format(symbol))
-        if env['sync'] == True:
-            Sync(symbol)
-        inputfiles = Filter(symbol)
-        symbolmetas.append(Process(symbol, inputfiles))
+        inputfiles = PrepareInputfiles(symbol)
+        symbolmeta = ProcessInputfiles(symbol, inputfiles)
+        symbolmetas.append(symbolmeta)
 
     Render(symbolmetas)
