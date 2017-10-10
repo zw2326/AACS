@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.0/Chart.min.js" type="text/javascript"></script>
+</head>
+<body>
+<div style="position:absolute; top:100px; left:100px; width:2500px; height:1200px;">
+<canvas id="myChart" width="1500" height="750"></canvas>
+</div>
+<script>
+    
+var data = {
+  labels: [
+"2017-03-04", "2017-03-04", "2017-03-04", "2017-03-04", "2017-03-04", "2017-03-04", "2017-03-04"
+],
+  datasets: [
+      {
+          label: "Total liabilities and equity",
+          pointLabelFontSize: 30,
+          backgroundColor: "rgba(255, 99, 132, 0.05)",
+          borderColor: "rgba(255, 99, 132, 0.75)",
+          fill: true,
+          pointHoverRadius: 10,
+          pointHoverBackgroundColor: "rgba(255, 99, 132, 1)",
+          pointRadius: 5,
+          pointBackgroundColor: "rgba(255, 99, 132, 1)",
+          data: [
+147461, 149747, 154292, 159948, 167497, 172756, 178621
+]
+      },
+      {
+          label: "Total equity",
+          pointLabelFontSize: 30,
+          backgroundColor: "rgba(75, 192, 192, 0.15)",
+          borderColor: "rgba(75, 192, 192, 0.75)",
+          fill: true,
+          pointHoverRadius: 10,
+          pointHoverBackgroundColor: "rgba(75, 192, 192, 1)",
+          pointRadius: 5,
+          pointBackgroundColor: "rgba(75, 192, 192, 1)",
+          data: [
+120331, 123569, 127879, 134103, 139036, 144949, 148286
+]
+      },
+      {
+          label: "Total current assets",
+          pointLabelFontSize: 30,
+          backgroundColor: "rgba(54, 162, 235, 0.3)",
+          borderColor: "rgba(54, 162, 235, 0.75)",
+          fill: true,
+          pointHoverRadius: 10,
+          pointHoverBackgroundColor: "rgba(54, 162, 235, 1)",
+          pointRadius: 5,
+          pointBackgroundColor: "rgba(54, 162, 235, 1)",
+          data: [
+90114, 90955, 94238, 98546, 105408, 108794, 112386
+]
+      },
+      {
+          label: "Total current liabilities",
+          pointLabelFontSize: 30,
+          backgroundColor: "rgba(153, 102, 255, 0.3)",
+          borderColor: "rgba(153, 102, 255, 0.75)",
+          fill: true,
+          pointHoverRadius: 10,
+          pointHoverBackgroundColor: "rgba(153, 102, 255, 1)",
+          pointRadius: 5,
+          pointBackgroundColor: "rgba(153, 102, 255, 1)",
+          data: [
+19310, 17684, 17341, 14323, 16756, 15256, 18685
+]
+      }
+  ]
+};
+
+var options = {
+  title: {
+    fontSize: 45,
+    display: true,
+    text: "GOOG"
+  },
+  legend: {
+    display: true,
+    labels: {fontSize: 30}
+  },
+  scales: {
+    xAxes: [{
+      ticks: {
+        fontSize: 30
+      }
+    }],
+    yAxes: [{
+      ticks: {
+        // beginAtZero: true,
+        fontSize: 30
+      }
+    }]
+  },
+  tooltips: {
+    enabled: true,
+    mode: 'single',
+    titleFontSize: 30,
+    bodyFontSize: 20,
+    callbacks: {
+      label: function(tooltipItems, data) { 
+         var multistringText = [tooltipItems.yLabel];
+             multistringText.push(tooltipItems.index+1);
+         return multistringText;
+      }
+    }
+  }
+};
+
+new Chart(
+  document.getElementById("myChart").getContext("2d"),
+  {
+    type: 'line',
+    data: data,
+    options: options
+  }
+);
+</script>
+</body>
+</html>
+    
