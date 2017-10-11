@@ -155,6 +155,7 @@ def ProcessCBS(cbssheet):
 
         ### TODO: remove $, ' '; convert e.g. '9,821' to float
         ### TODO: save original row key
+        ### TODO: do self check
         # Assets.
         if re.match('^.*total current assets.*$', rowkey):
             cbssheet.k2v['total current assets'] = row[1].value

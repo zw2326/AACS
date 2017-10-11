@@ -8,3 +8,8 @@
 8. Prediction.
 
 python main.py --filter ">2017Q1" --no-sync GOOG ORCL AMZN
+
+Main chart: total liabilities and equity, total equity, total liabilities
+Subsidiary charts: 1.(assets) total assets, current assets, non-current assets
+2.(liabilities) total liabilities, current liabilities, non-current liabilities
+Secondary subsidiary charts: ...
