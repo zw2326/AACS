@@ -1,6 +1,7 @@
 import code
 import FileSelector
 import math
+import numpy as np
 import os
 import pandas as pd
 import re
@@ -31,8 +32,8 @@ class Schema(object):
                 'total liabilities and equity' : ('^.*total liabilities and.*equity.*$', None)
             }
         },
-        'CSI': {},
-        'CSCF': {}
+        # 'CSI': {},
+        # 'CSCF': {}
     }
 
 
@@ -78,51 +79,66 @@ class Statement(object):
 
 
 class StatementParser(object):
+    ''' Class to parse the financial statement files. '''
+
+    debug = True
+
     @classmethod
     def Parse(cls, inputFiles, outputDir):
+        # Get all column names corresponding to all input files.
+        inputFile2ColumnName = StatementParser.__GetColumnNames__(inputFiles)
+
         # For each supported sheet, maintain a major and a minor index DataFrame.
         # Each column in either of the DataFrame corresponds to values from a input file.
-        ret = {target: {'major': pd.DataFrame(index=Schema.supported[target]['major'].keys()), 'minor': pd.DataFrame()}
-            for target in Schema.supported.keys()}
+        ret = {target: {'major': pd.DataFrame(columns=inputFile2ColumnName.keys(), index=Schema.supported[target]['major'].keys()),
+            'minor': pd.DataFrame(columns=inputFile2ColumnName.keys())} for target in Schema.supported.keys()}
+
         for inputFile in inputFiles: # Parse each input file.
+            columnName = inputFile2ColumnName[inputFile]
             s = Statement(inputFile)
             for target in Schema.supported.keys(): # Parse each supported sheet in the file.
-                StatementParser.__ParseTarget__(target, s.GetSheet(target), ret)
+                StatementParser.__ParseTarget__(target, s.GetSheet(target), columnName, ret)
+        code.interact(local = locals())
+
+    @classmethod
+    # Determine the column names to be added to DataFrames for all input files.
+    # TODO: extract and return the dates as the column names
+    def __GetColumnNames__(cls, inputFiles):
+        return {x: x for x in inputFiles}
 
     @classmethod
     # Given a sheet, parse the sheet using the target syntax.
-    def __ParseTarget__(cls, target, sheet, ret):
+    def __ParseTarget__(cls, target, sheet, column, ret):
         if target in ['CBS', 'CSI', 'CSCF']:
-            StatementParser.__ParseCCC__(target, sheet, ret)
+            StatementParser.__ParseCCC__(target, sheet, column, ret)
 
     @classmethod
-    def __ParseCCC__(cls, target, sheet, ret):
-        # TODO: Add a new column to both major and minor index collection for the new input file.
-        ret[target]['major'].add(pd.Series([], index=ret[target]['major'].index))
+    # Method to parse CBS, CSI and CSCF.
+    def __ParseCCC__(cls, target, sheet, column, ret):
         for rownum, row in sheet.iterrows():
-            if math.isnan(row.iloc[1]): # Ignore rows containing NaN value.
+            if not np.issubdtype(type(row.iloc[1]), np.number) or math.isnan(row.iloc[1]): # Ignore rows containing non-numeric or NaN value.
                 continue
 
             index = row.iloc[0].lower()
             value = float(row.iloc[1])
 
             # Compare row index against each supported major index for this sheet.
-            isMatched = False
+            isMajor = False
             for indexTarget, pattern in Schema.supported[target]['major'].items():
                 matchPattern, nonmatchPattern = pattern
                 if re.match(matchPattern, index) and ((not re.match(nonmatchPattern, index)) if nonmatchPattern is not None else True):
-                    if ret.loc[indexTarget][-1] is not None: # TODO
-                        raise Exception("Multiple values for {0} found: {1}, {2}".format(indexTarget, ret.loc[indexTarget][-1], value))
-                    ret[target]['major'].loc[indexTarget][-1] = value
-                    isMatched = True
+                    # Check if there is a duplicate. If yes, check if values are the same.
+                    if not math.isnan(ret[target]['major'].loc[indexTarget, column]) and ret[target]['major'].loc[indexTarget, column] != value:
+                        raise Exception("Multiple values for {0} found: {1}, {2}".format(indexTarget, ret[target]['major'].loc[indexTarget, column], value))
+                    ret[target]['major'].loc[indexTarget, column] = value
+                    if StatementParser.debug == True:
+                        print "{0} major (line={1}, value={2}):\n        {3}\n        {4}".format(target, rownum, value, indexTarget, row.iloc[0].encode('utf-8'))
+                    isMajor = True
                     break
-            if not isMatched: # A minor index.
-                if index in ret[target]['minor'].index: # TODO
-                    ret[target]['minor'][index][-1] = value
-                else:
-                    ret[target]['minor'].append(index, value) # TODO: add index and add value to -1 position!
- 
-            code.interact(local = locals())
+            if not isMajor: # A minor index.
+                ret[target]['minor'].loc[index, column] = value
+                if StatementParser.debug == True:
+                    print "{0} minor (line={1}, value={2}):\n        {3}\n        {4}".format(target, rownum, value, index, row.iloc[0].encode('utf-8'))
 
 
 def ParseArgs():
