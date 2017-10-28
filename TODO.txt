@@ -6,7 +6,7 @@
 7. Pattern detection.
 8. Prediction.
 
-python main.py --filter ">2017Q1" --source L1 GOOG ORCL AMZN
+python main.py --filter ">2017Q1" GOOG
 
 Main chart: total liabilities and equity, total equity, total liabilities
 Subsidiary charts: 1.(assets) total assets, current assets, non-current assets

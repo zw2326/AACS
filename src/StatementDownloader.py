@@ -1,13 +1,12 @@
+import os
 import pandas as pd
 import code
 
-class FileLoader(object):
-    syncTypes = {'no': 1, 'latest': 2, 'full': 3}
-    syncLimit = '2010'
-    urlTemplate = ''
+env = {'root': os.path.dirname(os.path.realpath(__file__))}
 
+class FileLoader(object):
     def __init__(self):
-        self.syncType = FileLoader.syncTypes['no']
+        pass
 
     # Get all files that satisfy a given filter for a symbol.
     def GetFiles(self, symbol, filter=None):
@@ -31,7 +30,7 @@ class FileLoader(object):
     # Filter files.
     def __Filter__(self, allFiles, filter):
         ret = allFiles
-        return allFiles
+        return ret
 
     # Download files newer than the latest cached one and update cache page.
     def __DownloadLatest__(self, symbol, hashFnTuples):
@@ -63,8 +62,18 @@ class FileLoader(object):
         pass
 
 
+# Parse arguments.
+def ParseArgs():
+    global env
+    pass
+
+
 
 
 if __name__ == '__main__':
+    ParseArgs()
+    fl = FileLoader()
+    fl.GetFiles(env['symbol']
+
     xl = pd.ExcelFile(u'workspace\cache\GOOG-2017-2-10Q.xlsx')
     code.interact(local = locals())
