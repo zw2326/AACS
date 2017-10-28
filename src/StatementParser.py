@@ -1,53 +1,70 @@
 import code
 import FileSelector
+import math
 import os
 import pandas as pd
 import re
+import sys
+
+class Schema(object):
+    ''' This class documents the set of supported sheets, and the matching criteria for their major indices. '''
+
+    # For each supported sheet, two components must be provided:
+    # pattern - the matching and non-matching pattern for the sheet name
+    # major - a list of major indices in the sheet, each associated with its matching and non-matching pattern.
+    #
+    # Supported sheets:
+    # CBS - consolidated balance sheets
+    # CSI - consolidated statements of income
+    # CSCF - consolidated statements of cash flows
+    supported = {
+        'CBS': {
+            'pattern': ('^.*consolidated balance sheet.*$', '^.*parenthetical.*$'),
+            'major': {
+                'total current assets'         : ('^.*total current assets.*$'         , None),
+                'total non-current assets'     : ('^.*total non-current assets.*$'     , None),
+                'total assets'                 : ('^.*total assets.*$'                 , None),
+                'total current liabilities'    : ('^.*total current liabilities.*$'    , None),
+                'total non-current liabilities': ('^.*total non-current liabilities.*$', None),
+                'total liabilities'            : ('^.*total liabilities.*$'            , '^.*equity.*$'),
+                'total equity'                 : ('^.*total.*equity.*$'                , '^.*liabilities.*$'),
+                'total liabilities and equity' : ('^.*total liabilities and.*equity.*$', None)
+            }
+        },
+        'CSI': {},
+        'CSCF': {}
+    }
+
 
 class Statement(object):
-    ''' Instance represents a collection of supported sheets for a single financial statement. '''
-
-    # Supported targets:
-    # CBS-consolidated balance sheets
-    # CSI-consolidated statements of income
-    # CSCF-consolidated statements of cash flows
-    supported = ['CBS', 'CSI', 'CSCF']
+    ''' Instance represents a collection of supported sheets for a single financial statement file. '''
 
     def __init__(self, inputFile):
-        # Map target (e.g. 'CBS') to {'sheet': sheet (DataFrame), 'origName': original name in the Excel (String)}.
-        self.sheets = {x: None for x in Statement.supported}
+        # Map sheet name (e.g. 'CBS') to {'sheet': sheet object (DataFrame), 'origName': original sheet name in the file (String)}.
+        self.sheets = {x: None for x in Schema.supported.keys()}
         self.inputFile = inputFile
         xl = pd.ExcelFile(inputFile)
 
-        # Map name to sheet.
+        # Locate all supported sheets in the input file.
         for origName in xl.sheet_names:
             sheet = xl.parse(origName)
 
-            # Sheet name in Excel is truncated to 31 characters.
-            # Use the A1 element of the sheet as its real name.
+            # Sheet name in Excel is truncated to 31 characters. Use the A1 element of the sheet as its real name.
             realName = sheet.columns[0].lower()
-            # Compare real name against each supported target.
-            for target in Statement.supported:
-                if self.__IsMatch__(target, realName):
+            # Compare real name against each supported sheet.
+            for target in Schema.supported.keys():
+                matchPattern, nonmatchPattern = Schema.supported[target]['pattern']
+                if re.match(matchPattern, realName) and ((not re.match(nonmatchPattern, realName)) if nonmatchPattern is not None else True):
                     if self.sheets[target] is not None:
                         raise Exception('Multiple {0} sheets found: {1}, {2}'.format(target, self.sheets[target]['origName'], origName))
                     self.sheets[target] = {'sheet': sheet, 'origName': origName}
+                    break
 
-        # Check if all supported targets are found.
+        # Check if all supported sheets are found.
+        # TODO: report all sheets that are not found?
         for target in self.sheets.keys():
             if self.sheets[target] is None:
                 raise Exception('{0} sheet is not found'.format(target))
-
-    # Given a supported target, check if the sheet is the target.
-    def __IsMatch__(self, target, sheetName):
-        if target == 'CBS':
-            return re.match('^.*consolidated balance sheet.*$', sheetName) and not re.match('^.*parenthetical.*$', sheetName)
-        elif target == 'CSI':
-            return re.match('^.*consolidated statements of income.*$', sheetName) and not re.match('.*comprehensive.*$', sheetName)
-        elif target == 'CSCF':
-            return re.match('^.*consolidated statements of cash flows.*$', sheetName)
-        else:
-            raise Exception('Unsupported target: {0}'.format(target))
 
     def GetSheet(self, target):
         if target not in self.sheets.keys():
@@ -63,62 +80,49 @@ class Statement(object):
 class StatementParser(object):
     @classmethod
     def Parse(cls, inputFiles, outputDir):
-        # For each sheet, manage major and minor indices separately.
-        all = {target: {'major': pd.DataFrame(), 'minor': pd.DataFrame()} for target in Statement.supported}
+        # For each supported sheet, maintain a major and a minor index DataFrame.
+        # Each column in either of the DataFrame corresponds to values from a input file.
+        ret = {target: {'major': pd.DataFrame(index=Schema.supported[target]['major'].keys()), 'minor': pd.DataFrame()}
+            for target in Schema.supported.keys()}
         for inputFile in inputFiles: # Parse each input file.
             s = Statement(inputFile)
-            for target in Statement.supported: # Parse each target in the file.
-                StatementParser.__ParseTarget__(target, s.GetSheet(target), all)
+            for target in Schema.supported.keys(): # Parse each supported sheet in the file.
+                StatementParser.__ParseTarget__(target, s.GetSheet(target), ret)
 
     @classmethod
     # Given a sheet, parse the sheet using the target syntax.
     def __ParseTarget__(cls, target, sheet, ret):
-        if target == 'CBS':
-            StatementParser.__ParseCBS__(sheet, ret)
-        elif target == 'CSI':
-            pass
-        elif target == 'CSCF':
-            pass
+        if target in ['CBS', 'CSI', 'CSCF']:
+            StatementParser.__ParseCCC__(target, sheet, ret)
 
     @classmethod
-    def __ParseCBS__(cls, sheet, ret):
-        code.interact(local = locals())
-        for row in cbssheet.sheet.iter_rows(row_offset=1):
-            if row[0].value == None:
+    def __ParseCCC__(cls, target, sheet, ret):
+        # TODO: Add a new column to both major and minor index collection for the new input file.
+        ret[target]['major'].add(pd.Series([], index=ret[target]['major'].index))
+        for rownum, row in sheet.iterrows():
+            if math.isnan(row.iloc[1]): # Ignore rows containing NaN value.
                 continue
-            rowkey = row[0].value.lower()
 
-            ### TODO: remove $, ' '; convert e.g. '9,821' to float
-            ### TODO: save original row key
-            ### TODO: do self check
-            # Assets.
-            if re.match('^.*total current assets.*$', rowkey):
-                cbssheet.k2v['total current assets'] = row[1].value
-                cbssheet.k2k['total current assets'] = rowkey
-            elif re.match('^.*total non-current assets.*$', rowkey):
-                cbssheet.k2v['total non-current assets'] = row[1].value
-                cbssheet.k2k['total non-current assets'] = rowkey
-            elif re.match('^.*total assets.*$', rowkey):
-                cbssheet.k2v['total assets'] = row[1].value
-                cbssheet.k2k['total assets'] = rowkey
-            # Liabilities.
-            elif re.match('^.*total current liabilities.*$', rowkey):
-                cbssheet.k2v['total current liabilities'] = row[1].value
-                cbssheet.k2k['total current liabilities'] = rowkey
-            elif re.match('^.*total non-current liabilities.*$', rowkey):
-                cbssheet.k2v['total non-current liabilities'] = row[1].value
-                cbssheet.k2k['total non-current liabilities'] = rowkey
-            elif re.match('^.*total liabilities.*$', rowkey) and not re.match('^.*equity.*$', rowkey):
-                cbssheet.k2v['total liabilities'] = row[1].value
-                cbssheet.k2k['total liabilities'] = rowkey
-            # Equity.
-            elif re.match('^.*total.*equity.*$', rowkey) and not re.match('^.*liabilities.*$', rowkey):
-                cbssheet.k2v['total equity'] = row[1].value
-                cbssheet.k2k['total equity'] = rowkey
-            # Liabilities and equity.
-            elif re.match('^.*total liabilities and.*equity.*$', rowkey):
-                cbssheet.k2v['total liabilities and equity'] = row[1].value
-                cbssheet.k2k['total liabilities and equity'] = rowkey
+            index = row.iloc[0].lower()
+            value = float(row.iloc[1])
+
+            # Compare row index against each supported major index for this sheet.
+            isMatched = False
+            for indexTarget, pattern in Schema.supported[target]['major'].items():
+                matchPattern, nonmatchPattern = pattern
+                if re.match(matchPattern, index) and ((not re.match(nonmatchPattern, index)) if nonmatchPattern is not None else True):
+                    if ret.loc[indexTarget][-1] is not None: # TODO
+                        raise Exception("Multiple values for {0} found: {1}, {2}".format(indexTarget, ret.loc[indexTarget][-1], value))
+                    ret[target]['major'].loc[indexTarget][-1] = value
+                    isMatched = True
+                    break
+            if not isMatched: # A minor index.
+                if index in ret[target]['minor'].index: # TODO
+                    ret[target]['minor'][index][-1] = value
+                else:
+                    ret[target]['minor'].append(index, value) # TODO: add index and add value to -1 position!
+ 
+            code.interact(local = locals())
 
 
 def ParseArgs():
@@ -128,7 +132,10 @@ def ParseArgs():
 
 if __name__ == '__main__':
     args = ParseArgs()
-    StatementParser.Parse([r'C:\Users\mypc\Desktop\AACS\workspace\cache\GOOG\statement\GOOG-2015-4-10K.xlsx'], 'aa')
+    if sys.platform.lower().startswith('win'):
+        StatementParser.Parse([r'C:\Users\mypc\Desktop\AACS\workspace\cache\GOOG\statement\GOOG-2015-4-10K.xlsx'], 'aa')
+    else:
+        StatementParser.Parse([r'/Users/a2326/Git/AACS/workspace/cache/GOOG/statement/GOOG-2015-4-10K.xlsx'], 'aa')
     '''
     if args['inputDir'] != None: # Load files from input dir.
         args['inputFiles'] = ...
