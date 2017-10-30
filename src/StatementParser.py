@@ -1,18 +1,16 @@
 import code
-import FileSelector
 import math
 import numpy as np
-import os
 import pandas as pd
 import re
 import sys
 
 class Schema(object):
-    ''' This class documents the set of supported sheets, and the matching criteria for their major indices. '''
+    ''' This class documents the set of supported sheets, and the mapping criteria for a number of well-known indices on each sheet. '''
 
-    # For each supported sheet, two components must be provided:
-    # pattern - the matching and non-matching pattern for the sheet name
-    # major - a list of major indices in the sheet, each associated with its matching and non-matching pattern.
+    # For each supported sheet, two components shall be provided:
+    # namePattern - the matching and non-matching pattern for the sheet name
+    # indexPattern - a list matching & nonmatching patterns to map indices.
     #
     # Supported sheets:
     # CBS - consolidated balance sheets
@@ -20,8 +18,8 @@ class Schema(object):
     # CSCF - consolidated statements of cash flows
     supported = {
         'CBS': {
-            'pattern': ('^.*consolidated balance sheet.*$', '^.*parenthetical.*$'),
-            'major': {
+            'namePattern': ('^.*consolidated balance sheet.*$', '^.*parenthetical.*$'),
+            'indexPattern': {
                 'total current assets'         : ('^.*total current assets.*$'         , None),
                 'total non-current assets'     : ('^.*total non-current assets.*$'     , None),
                 'total assets'                 : ('^.*total assets.*$'                 , None),
@@ -32,7 +30,10 @@ class Schema(object):
                 'total liabilities and equity' : ('^.*total liabilities and.*equity.*$', None)
             }
         },
-        # 'CSI': {},
+        'CSI': {
+            'namePattern': ('^.*(consolidated statements of (earnings|income|operations)|consolidated income statements).*$', '^.*parenthetical.*$'),
+            'indexPattern': {}
+        },
         # 'CSCF': {}
     }
 
@@ -54,7 +55,7 @@ class Statement(object):
             realName = sheet.columns[0].lower()
             # Compare real name against each supported sheet.
             for target in Schema.supported.keys():
-                matchPattern, nonmatchPattern = Schema.supported[target]['pattern']
+                matchPattern, nonmatchPattern = Schema.supported[target]['namePattern']
                 if re.match(matchPattern, realName) and ((not re.match(nonmatchPattern, realName)) if nonmatchPattern is not None else True):
                     if self.sheets[target] is not None:
                         raise Exception('Multiple {0} sheets found: {1}, {2}'.format(target, self.sheets[target]['origName'], origName))
@@ -84,21 +85,21 @@ class StatementParser(object):
     debug = True
 
     @classmethod
-    def Parse(cls, inputFiles, outputDir):
+    def Parse(cls, inputFiles):
         # Get all column names corresponding to all input files.
         inputFile2ColumnName = StatementParser.__GetColumnNames__(inputFiles)
 
-        # For each supported sheet, maintain a major and a minor index DataFrame.
-        # Each column in either of the DataFrame corresponds to values from a input file.
-        ret = {target: {'major': pd.DataFrame(columns=inputFile2ColumnName.keys(), index=Schema.supported[target]['major'].keys()),
-            'minor': pd.DataFrame(columns=inputFile2ColumnName.keys())} for target in Schema.supported.keys()}
+        # For each supported sheet, maintain a DataFrame for all indices. Each column in the DataFrame corresponds to values from one input file.
+        ret = {target: pd.DataFrame(columns=inputFile2ColumnName.keys(), index=Schema.supported[target]['indexPattern'].keys()) for target in Schema.supported.keys()}
 
         for inputFile in inputFiles: # Parse each input file.
             columnName = inputFile2ColumnName[inputFile]
             s = Statement(inputFile)
             for target in Schema.supported.keys(): # Parse each supported sheet in the file.
                 StatementParser.__ParseTarget__(target, s.GetSheet(target), columnName, ret)
-        code.interact(local = locals())
+
+        return ret
+        # code.interact(local = locals())
 
     @classmethod
     # Determine the column names to be added to DataFrames for all input files.
@@ -122,23 +123,23 @@ class StatementParser(object):
             index = row.iloc[0].lower()
             value = float(row.iloc[1])
 
-            # Compare row index against each supported major index for this sheet.
+            # Compare row index against each supported well-known index for this sheet.
             isMajor = False
-            for indexTarget, pattern in Schema.supported[target]['major'].items():
+            for indexTarget, pattern in Schema.supported[target]['indexPattern'].items():
                 matchPattern, nonmatchPattern = pattern
                 if re.match(matchPattern, index) and ((not re.match(nonmatchPattern, index)) if nonmatchPattern is not None else True):
                     # Check if there is a duplicate. If yes, check if values are the same.
-                    if not math.isnan(ret[target]['major'].loc[indexTarget, column]) and ret[target]['major'].loc[indexTarget, column] != value:
-                        raise Exception("Multiple values for {0} found: {1}, {2}".format(indexTarget, ret[target]['major'].loc[indexTarget, column], value))
-                    ret[target]['major'].loc[indexTarget, column] = value
+                    if not math.isnan(ret[target].loc[indexTarget, column]) and ret[target].loc[indexTarget, column] != value:
+                        raise Exception("Multiple values for {0} found: {1}, {2}".format(indexTarget, ret[target].loc[indexTarget, column], value))
+                    ret[target].loc[indexTarget, column] = value
                     if StatementParser.debug == True:
-                        print "{0} major (line={1}, value={2}):\n        {3}\n        {4}".format(target, rownum, value, indexTarget, row.iloc[0].encode('utf-8'))
+                        print "{0} mapping (line={1}, value={2}):\n        {3}\n     -> {4}".format(target, rownum, value, row.iloc[0].encode('utf-8'), indexTarget)
                     isMajor = True
                     break
-            if not isMajor: # A minor index.
-                ret[target]['minor'].loc[index, column] = value
+            if not isMajor: # Not a well-known index.
+                ret[target].loc[index, column] = value
                 if StatementParser.debug == True:
-                    print "{0} minor (line={1}, value={2}):\n        {3}\n        {4}".format(target, rownum, value, index, row.iloc[0].encode('utf-8'))
+                    print "{0} (line={1}, value={2}):\n        {3}".format(target, rownum, value, index.encode('utf-8'))
 
 
 def ParseArgs():
@@ -149,13 +150,11 @@ def ParseArgs():
 if __name__ == '__main__':
     args = ParseArgs()
     if sys.platform.lower().startswith('win'):
-        StatementParser.Parse([r'C:\Users\mypc\Desktop\AACS\workspace\cache\GOOG\statement\GOOG-2015-4-10K.xlsx'], 'aa')
+        StatementParser.Parse([r'C:\Users\mypc\Desktop\AACS\workspace\cache\GOOG\statement\GOOG-2015-4-10K.xlsx', r'C:\Users\mypc\Desktop\AACS\workspace\cache\GOOG\statement\GOOG-2016-1-10Q.xlsx'])
     else:
-        StatementParser.Parse([r'/Users/a2326/Git/AACS/workspace/cache/GOOG/statement/GOOG-2015-4-10K.xlsx'], 'aa')
+        StatementParser.Parse([r'/Users/a2326/Git/AACS/workspace/cache/GOOG/statement/GOOG-2015-4-10K.xlsx'])
     '''
     if args['inputDir'] != None: # Load files from input dir.
         args['inputFiles'] = ...
-    if args['filter'] != None: # Do filtering.
-        args['inputFiles'] = ...
-    StatementParser.Parse(args['inputFiles'], args['outputDir'])
+    StatementParser.Parse(args['inputFiles'])
     '''
